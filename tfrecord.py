@@ -14,14 +14,14 @@ def random_pre_process(images):
     #random_brightness
     images = tf.image.random_brightness(images, max_delta=0.3) 
     #random_contrast
-    images = tf.image.random_contrast(images, 0.7, 1.4)
+    images = tf.image.random_contrast(images, 0.9, 1.1)
     #random_saturation
-    tf.image.random_saturation(images, 0.3, 0.5)
+    tf.image.random_saturation(images, 0.4, 0.5)
     #new_size = tf.constant([image_size,image_size],dtype=tf.int32)
     #images = tf.image.resize_images(images, new_size)
     return images
 
-def create_TFR(classes, class_num, filename_train, filename_val, folder, img_size, is_val):
+def create_TFR(classes, class_num, imb_ratio, filename_train, filename_val, folder, img_size, is_val):
     data_list = []
     new_id = ''
     for i in range(class_num):
@@ -52,44 +52,25 @@ def create_TFR(classes, class_num, filename_train, filename_val, folder, img_siz
     tmp = list(zip(data_list, label))
     random.shuffle(tmp)
     
-    count_t_0 = 0
-    count_t_1 = 0
+    count_t_Maj = 0
+    count_t_min = 0
     count_v = 0
     for img_path,index in tmp:
         #print(img_path)
         #down_sampling
         if is_val == False:
             r=1
-            # if index == 1: #or index == 1 or index == 2 or index == 3 or index == 4 or index == 5 or index == 6 or index == 7: #min
-            if index == 0 or index == 1 or index == 2 or index == 3 or index == 4 :
-
-                r = random.randint(1,50) # 3/5
+            # if index == 0 or index == 1 or index == 2 or index == 3 or index == 4 or index == 5 or index == 6 or index == 7 : #min
+            # if index == 0 or index == 1 or index == 2 or index == 3 or index == 4 :
+            if index == 1:
+                r = random.randint(1,imb_ratio) # 3/5
+                # index = 0
                 #if r==1 or r==2 or r==3: r=1
             #if index == 1 :or index == 6 or index == 7 or index == 8 or index == 9:
             else: #Maj
                 r = 1
+                # index = 1
 
-            #if r==1:
-            # if index >= 2:
-            #     for i in range(10):
-            #         count+=1
-            #         img=Image.open(img_path)
-            #         img= img.resize((img_size,img_size))
-
-            #         if img.mode == 'L':
-            #             img = np.array(img) 
-            #             img = np.stack((img,)*3,axis=-1) # for grayscale to 3-channel 
-            #             #print(img.shape)
-            #         else:
-            #             img = np.array(img)
-            #             #print(img.shape)
-                    
-            #         img_raw=img.tobytes()
-            #         example = tf.train.Example(features=tf.train.Features(feature={
-            #             "label": tf.train.Feature(int64_list=tf.train.Int64List(value=[index])),
-            #             'img_raw': tf.train.Feature(bytes_list=tf.train.BytesList(value=[img_raw]))
-            #         })) 
-            #         writer.write(example.SerializeToString())   
 
             if r==1:
                 
@@ -118,45 +99,33 @@ def create_TFR(classes, class_num, filename_train, filename_val, folder, img_siz
                 else:
                     #down sampleing 
                     # if index == 0 or index == 1 or index == 2 or index == 3 or index == 4 or index == 5 or index == 6 or index == 7:
-                    if index == 0 or index == 1 or index == 2 or index == 3 or index == 4 :
-                    # if index == 1 :
+                    # if index == 0 or index == 1 or index == 2 or index == 3 or index == 4 :
+                    if index == 1 :
 
                         # oversampling
                         # for _ in range(25):
                         #     writer_train.write(example.SerializeToString())
-                        #     count_t_1+=1
+                        #     count_t_min+=1
                         writer_train.write(example.SerializeToString())
-                        count_t_1+=1
+                        count_t_min+=1
+                        # count_t_Maj+=1
                     else :
                         #down = random.randint(1,10) #downsampling
                         #if down == 1 :
+
+                        # oversampling
+                        # for _ in range(4):
+                        #      writer_train.write(example.SerializeToString())
+                        #      count_t_min+=1
                         writer_train.write(example.SerializeToString())
-                        count_t_0+=1
+                        count_t_Maj+=1
+                        # count_t_min+=1
 
 
-        else: # need to fix
-            count+=1
-
-            img=Image.open(img_path)
-            img= img.resize((img_size,img_size))
-            if img.mode == 'L':
-                #print('0')
-                img = np.array(img) 
-                img = np.stack((img,)*3,axis=-1) # for grayscale to 3-channel 
-                    #print(img.shape)
-            else:
-                img = np.array(img)
-            #print(img.shape)
-            img_raw=img.tobytes()
-            example = tf.train.Example(features=tf.train.Features(feature={
-                "label": tf.train.Feature(int64_list=tf.train.Int64List(value=[index])),
-                'img_raw': tf.train.Feature(bytes_list=tf.train.BytesList(value=[img_raw]))
-            })) 
-            writer.write(example.SerializeToString())  
 
     writer_train.close()
     writer_val.close()
-    return count_t_0, count_t_1, count_v
+    return count_t_Maj, count_t_min, count_v
 def read_and_decode(filename,batch_size,img_size): 
     filename_queue = tf.train.string_input_producer([filename])
 
