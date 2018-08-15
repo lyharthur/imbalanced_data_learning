@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import random
 from tensorflow.examples.tutorials.mnist import input_data
+from sklearn.model_selection import train_test_split
 
 from tfrecord import *
 
@@ -34,20 +35,183 @@ def get_img(img_path, resize_h):
     #print(img.shape)
     return np.array(img)/255.0
 
+class mydata_csv():
+    def __init__(self, data_file, class_num, is_val=False):
+        datas = np.loadtxt(data_file, dtype=float,delimiter=',')
+
+        self.class_num = class_num
+        self.size = datas.shape[1]-1
+        print('#atrr:', self.size)
+        data_name = data_file.split('/')[2][:-4]
+        self.filename_train = './tfrecords/' + data_name + '_train.tfrecords'
+        self.filename_val = './tfrecords/' + data_name + '_val.tfrecords'
+
+        writer_train = tf.python_io.TFRecordWriter(self.filename_train)
+        writer_val = tf.python_io.TFRecordWriter(self.filename_val)
+
+        self.count_t = 0
+        self.count_v = 0
+        self.count_t0 = 0
+        self.count_t1 = 0
+        self.count_v0 = 0
+        self.count_v1 = 0
+        self.batch_count = 0
+        # self.train_set = np.zeros((1, self.size+1))
+        # self.test_set = np.zeros((1, self.size+1))
+
+        self.train_set, self.test_set = train_test_split(datas, test_size=0.3, random_state=None)
+        for data in self.train_set:
+            # r = random.randint(1,10)
+            # print(data)
+            x = data[:-1]
+            y = data[-1]
+
+            # x_mean = np.mean(x, axis = 0)
+            # x_std = np.std(x, axis = 0)
+
+            # x -= x_mean # zero-center
+            # x /= x_std # normalize
+
+            if y == 0 :
+                down = random.randint(1,5)
+                if down == 1:
+                    self.count_t0 += 1
+            if y == 1 :
+                self.count_t1 += 1
+                down = 1
+
+            x = x.astype(np.float32)
+            x = x.tobytes()
+            example = tf.train.Example(features=tf.train.Features(feature={
+                    "label": tf.train.Feature(float_list=tf.train.FloatList(value=[y])),
+                    'atrr': tf.train.Feature(bytes_list=tf.train.BytesList(value=[x]))
+                })) 
+            if down ==1:
+                writer_train.write(example.SerializeToString())
+                self.count_t+=1
+            # data = np.reshape(data, (1, self.size+1))
+            # self.train_set = np.append(self.train_set, data, axis=0)     
+
+        for data in self.test_set:
+            # r = random.randint(1,10)
+            # print(data)
+            x = data[:-1]
+            y = data[-1]
+
+            # x -= x_mean # zero-center
+            # x /= x_std # normalize
+
+            if y == 0 :
+                down = random.randint(1,1)
+                if down == 1:
+                    self.count_v0 += 1
+            if y == 1 :
+                self.count_v1 += 1
+                down = 1
+
+            x = x.astype(np.float32)
+            x = x.tobytes()
+            example = tf.train.Example(features=tf.train.Features(feature={
+                    "label": tf.train.Feature(float_list=tf.train.FloatList(value=[y])),
+                    'atrr': tf.train.Feature(bytes_list=tf.train.BytesList(value=[x]))
+                })) 
+            if down ==1:
+                writer_val.write(example.SerializeToString())
+                self.count_v+=1
+            # data = np.reshape(data, (1, self.size+1))
+            # self.test_set = np.append(self.test_set, data, axis=0) 
+
+
+        # self.train_set = self.train_set[1:]
+        # self.test_set = self.test_set[1:]
+        print('Train, Test', self.count_t, self.count_v)
+        # print(self.train_set)
+        # print(self.test_set)
+        # data_train = np.array(data_train)
+        # data_test = np.array(data_test)
+        # print(data_train.shape, data_test.shape)
+
+        # X_train = data_train[:,:-1]
+        # y_train = data_train[:,-1]
+        
+        # X_test = data_test[1:,:-1]
+        # y_test = data_test[1:,-1]
+
+    def get_batch(self, dataset, batch_size, attr_size):
+        # print(self.batch_count)
+        batch_number = len(dataset)/batch_size
+
+        X = dataset[:, :-1]
+        y = dataset[:, -1]
+        # y = y.reshape(len(dataset),1)
+
+        X_b = X[self.batch_count*batch_size:(self.batch_count+1)*batch_size]
+        y_b = y[self.batch_count*batch_size:(self.batch_count+1)*batch_size]
+        # patch = batch_size - len(y_b)
+        # if patch > 0:
+        #     X_b = X[self.batch_count*batch_size-patch:(self.batch_count+1)*batch_size]
+        #     y_b = y[self.batch_count*batch_size-patch:(self.batch_count+1)*batch_size]
+
+        one_hot = np.zeros((len(y_b),self.class_num))
+        for i,val in enumerate(y_b):
+            one_hot[i,int(val)]=1
+        y_b_onehot = one_hot
+
+        if self.batch_count < batch_number-1:
+            self.batch_count += 1
+        else:
+            self.batch_count = 0
+            np.random.shuffle(dataset)
+        return X_b, y_b_onehot
+
+    def read_and_decode_csv_tfrecord(self, filename, batch_size, attr_size): 
+        filename_queue = tf.train.string_input_producer([filename])
+
+        reader = tf.TFRecordReader()
+        _, serialized_example = reader.read(filename_queue)
+        features = tf.parse_single_example(serialized_example,
+                                           features={
+                                               'label': tf.FixedLenFeature([], tf.float32),
+                                               'atrr' : tf.FixedLenFeature([], tf.string),
+                                           })
+
+        label = tf.cast(features['label'], tf.int32)
+        atrr = tf.decode_raw(features['atrr'], tf.float32)
+        atrr = tf.reshape(atrr, [attr_size])
+        
+        atrr_b, label_b = tf.train.shuffle_batch([atrr, label],
+                                       batch_size=batch_size, capacity=100+3*batch_size,num_threads=64,
+                                       min_after_dequeue=100)
+
+        return atrr_b, label_b
+
+    def get_batch_tfrecord(self, sess, atrr, label, classes_num, batch_size):
+        X_b, y_b = sess.run([atrr,label])
+        #print(y_b.shape)
+        
+        #one_hot
+        one_hot = np.zeros((batch_size,classes_num))###self.y_dim  # my im gan = 2
+        for i,val in enumerate(y_b):
+            # print(i,val)
+            one_hot[i,val]=1
+        label_onehot = one_hot
+        #print(X_b.shape,label_onehot.shape)
+
+        return X_b, label_onehot
 
 class mydata():
-    def __init__(self, data_folder, size, classes, class_num, is_val=False):
+    def __init__(self, data_folder, size, classes, class_num, imb_ratio, is_val=False):
 
         self.z_dim = 512
-        self.y_dim = class_num
         self.size = size
         self.class_num = class_num
+        self.imb_ratio = imb_ratio
         self.channel = 3 ##
         
         #old version?
         data_list = []
         new_id = ''
-        for i in range(self.y_dim):
+        for i in range(class_num):
             class_sub = classes.split(',')[i]
             new_id += class_sub
             #print(class_sub)
@@ -61,12 +225,12 @@ class mydata():
 
         print(self.filename_train)
         #TFRecord
-        self.len_train_0, self.len_train_1, self.len_val = create_TFR(classes,class_num, #
+        self.len_train_Maj, self.len_train_min, self.len_val = create_TFR(classes,class_num, imb_ratio=imb_ratio, #
                                     filename_train=self.filename_train,filename_val=self.filename_val, #
                                     folder=data_folder,img_size=self.size,is_val=is_val)
 
-
-        print(self.len_train_0, self.len_train_1, self.len_val)
+        print('Maj, min, val')
+        print(self.len_train_Maj, self.len_train_min, self.len_val)
         '''
         #get_img
         img_list = [get_img(img_path, self.size) for img_path in data_list]
