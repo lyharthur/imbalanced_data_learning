@@ -31,6 +31,66 @@ def unpool(value, name='unpool'):
         out = tf.reshape(out, out_size, name=scope)
     return out
 
+class my_tuning(object):
+    def __init__(self):
+        self.name = 'my_tuning'
+
+    def __call__(self, inputs, reuse=False):
+        with tf.variable_scope(self.name) as scope:
+            if reuse:
+                scope.reuse_variables()
+            net = tcl.fully_connected(inputs, 16, activation_fn=lrelu, normalizer_fn=tcl.batch_norm, scope='fc1')
+            # net = tcl.fully_connected(net, 16, activation_fn=tf.nn.relu, normalizer_fn=tcl.batch_norm, scope='fc2')
+            net = tcl.fully_connected(net, 16, activation_fn=lrelu, normalizer_fn=tcl.batch_norm, scope='feature')
+            y_pred = tcl.fully_connected(net, 1, activation_fn=None, normalizer_fn=tcl.batch_norm, scope='fc_out')
+
+            return y_pred
+    @property
+    def vars(self):
+        return [var for var in tf.global_variables() if self.name in var.name]
+
+class my_csv_AE(object):
+    def __init__(self, class_num):
+        self.name = 'my_csv_AE'
+        self.class_num = class_num
+        
+    def __call__(self, inputs, feature_size, data_size, reuse=False):
+        with tf.variable_scope(self.name) as scope:
+            if reuse:
+                scope.reuse_variables()
+            #net = tcl.fully_connected(inputs, feature_size//4, activation_fn=lrelu, normalizer_fn=None, scope='fc1')
+            encoder = tcl.fully_connected(inputs, feature_size//2, activation_fn=lrelu, normalizer_fn=tcl.batch_norm, scope='e')
+            feature = tcl.fully_connected(encoder, feature_size, activation_fn=None, normalizer_fn=tcl.batch_norm, scope='feature')
+            decoder = tcl.fully_connected(feature, feature_size//2, activation_fn=lrelu, normalizer_fn=tcl.batch_norm, scope='d')
+            out = tcl.fully_connected(decoder, data_size, activation_fn=None, normalizer_fn=tcl.batch_norm, scope='out')
+            # y_pred = tcl.fully_connected(feature, self.class_num, activation_fn=tf.nn.sigmoid, normalizer_fn=tcl.batch_norm, scope='fc_out')
+            mse = tf.nn.l2_loss(inputs - out)
+
+            return mse, feature
+    @property
+    def vars(self):
+        return [var for var in tf.global_variables() if self.name in var.name]
+
+class my_csv(object):
+    def __init__(self, class_num):
+        self.name = 'my_csv'
+        self.class_num = class_num
+
+    def __call__(self, inputs, feature_size, reuse=False):
+        with tf.variable_scope(self.name) as scope:
+            if reuse:
+                scope.reuse_variables()
+            #net = tcl.fully_connected(inputs, feature_size//4, activation_fn=lrelu, normalizer_fn=None, scope='fc1')
+            net1 = tcl.fully_connected(inputs, feature_size//2, activation_fn=lrelu, normalizer_fn=tcl.batch_norm, scope='fc2')      
+            feature = tcl.fully_connected(net1, feature_size, activation_fn=None, normalizer_fn=tcl.batch_norm, scope='feature')
+            net2 = tcl.fully_connected(feature, feature_size//2, activation_fn=lrelu, normalizer_fn=tcl.batch_norm, scope='fc3')
+            y_pred = tcl.fully_connected(net2, self.class_num, activation_fn=tf.nn.sigmoid, normalizer_fn=tcl.batch_norm, scope='fc_out')
+
+            return y_pred, feature
+    @property
+    def vars(self):
+        return [var for var in tf.global_variables() if self.name in var.name]
+
 class my_inception_v3(object):
     def __init__(self, class_num):
         self.name = 'InceptionV3'
@@ -47,7 +107,7 @@ class my_inception_v3(object):
 class cnn(object):
     def __init__(self, class_num):
         self.name = 'cnn'
-        self.class_num = class_num
+        self.class_num = 10
 
     def __call__(self, inputs, is_training, reuse=False):
         with tf.variable_scope(self.name) as scope:
@@ -81,28 +141,26 @@ class cnn(object):
 class cnn_mnist(object):
     def __init__(self, class_num):
         self.name = 'cnn'
-        self.class_num = class_num
+        self.class_num = 10
 
-    def __call__(self, inputs, is_training, reuse=False):
+    def __call__(self, inputs, feature_size, is_training, reuse=False):
         with tf.variable_scope(self.name) as scope:
             if reuse:
                 scope.reuse_variables()
             net = tcl.conv2d(inputs, num_outputs=4, kernel_size=3,# 
-                        stride=2, activation_fn=lrelu, padding='SAME', normalizer_fn=tcl.batch_norm, scope='conv1')
-            net = tcl.dropout(net, keep_prob=0.5) 
+                        stride=2, activation_fn=tf.nn.relu, padding='SAME', normalizer_fn=tcl.batch_norm, scope='conv1')
             print(net.shape)
             net = tcl.conv2d(net, num_outputs=8, kernel_size=3,# 
-                        stride=2, activation_fn=lrelu, padding='SAME', normalizer_fn=tcl.batch_norm, scope='conv2')
-            net = tcl.dropout(net, keep_prob=0.8) 
+                        stride=2, activation_fn=tf.nn.relu, padding='SAME', normalizer_fn=tcl.batch_norm, scope='conv2')
             print(net.shape)
 
             #net = tcl.dropout(net, keep_prob=0.5)  
             net = tcl.flatten(net) #feature
             print(net.shape)
-            feature = tcl.fully_connected(net, 128, activation_fn=None, normalizer_fn=tcl.batch_norm, scope='feature')
+            feature = tcl.fully_connected(net, feature_size, activation_fn=None, normalizer_fn=tcl.batch_norm, scope='feature')
             y_pred = tcl.fully_connected(feature, self.class_num, activation_fn=tf.nn.sigmoid, normalizer_fn=tcl.batch_norm, scope='fc_out')
 
-            return y_pred
+            return feature, y_pred
     @property
     def vars(self):
         return [var for var in tf.global_variables() if self.name in var.name]
@@ -112,26 +170,28 @@ class cnn_cifar(object):
         self.name = 'cnn'
         self.class_num = class_num
 
-    def __call__(self, inputs, is_training, reuse=False):
+    def __call__(self, inputs, feature_size, is_training, reuse=False):
         with tf.variable_scope(self.name) as scope:
             if reuse:
                 scope.reuse_variables()
-            net = tcl.conv2d(inputs, num_outputs=4, kernel_size=3,# 
-                        stride=2, activation_fn=lrelu, padding='SAME', normalizer_fn=tcl.batch_norm, scope='conv1') 
+            net = tcl.conv2d(inputs, num_outputs=64, kernel_size=5,# 
+                        stride=1, activation_fn=tf.nn.relu, padding='SAME', normalizer_fn=tcl.batch_norm, scope='conv1') 
+            net = tcl.max_pool2d(net, kernel_size=3, stride=2)
             print(net.shape)
-            net = tcl.conv2d(net, num_outputs=8, kernel_size=3,# 
-                        stride=2, activation_fn=lrelu, padding='SAME', normalizer_fn=tcl.batch_norm, scope='conv2')
-            print(net.shape)
-            net = tcl.conv2d(net, num_outputs=16, kernel_size=3,# 
-                        stride=2, activation_fn=lrelu, padding='SAME', normalizer_fn=tcl.batch_norm, scope='conv3')
+            net = tcl.conv2d(net, num_outputs=64, kernel_size=5,# 
+                        stride=1, activation_fn=tf.nn.relu, padding='SAME', normalizer_fn=tcl.batch_norm, scope='conv2')
+            net = tcl.max_pool2d(net, kernel_size=3, stride=2)
             print(net.shape)
 
             net = tcl.flatten(net) #feature
             print(net.shape)
-            feature = tcl.fully_connected(net, 128, activation_fn=None, normalizer_fn=tcl.batch_norm, scope='feature')
-            y_pred = tcl.fully_connected(feature, self.class_num, activation_fn=tf.nn.sigmoid, normalizer_fn=tcl.batch_norm, scope='fc_out')
+            net = tcl.fully_connected(net, 256, activation_fn=tf.nn.relu, normalizer_fn=tcl.batch_norm, scope='fc1')
+            net = tcl.fully_connected(net, 128, activation_fn=tf.nn.relu, normalizer_fn=tcl.batch_norm, scope='fc2')
+            feature = tcl.fully_connected(net, feature_size, activation_fn=None, normalizer_fn=tcl.batch_norm, scope='feature', weights_initializer=tf.random_normal_initializer(0, 0.02))
 
-            return y_pred
+            y_pred = tcl.fully_connected(feature, self.class_num, activation_fn=tf.nn.sigmoid, normalizer_fn=tcl.batch_norm, scope='out')
+
+            return feature, y_pred
     @property
     def vars(self):
         return [var for var in tf.global_variables() if self.name in var.name]
@@ -182,56 +242,32 @@ class one_shot_cifar(object):
         with tf.variable_scope(self.name) as scope:
             if reuse:
                 scope.reuse_variables()
-            net = tcl.conv2d(inputs, num_outputs=8, kernel_size=3,# 
+            net = tcl.conv2d(inputs, num_outputs=16, kernel_size=5,# 
                         stride=1, activation_fn=tf.nn.relu, padding='SAME', normalizer_fn=tcl.batch_norm, scope='conv1') 
-            net = tcl.max_pool2d(net, kernel_size=2, stride=2)
+            net = tcl.max_pool2d(net, kernel_size=3, stride=2)
             print(net.shape)
-            net = tcl.conv2d(net, num_outputs=16, kernel_size=3,# 
+            net = tcl.conv2d(net, num_outputs=32, kernel_size=5,# 
                         stride=1, activation_fn=tf.nn.relu, padding='SAME', normalizer_fn=tcl.batch_norm, scope='conv2')
-            net = tcl.max_pool2d(net, kernel_size=2, stride=2)
+            net = tcl.max_pool2d(net, kernel_size=3, stride=2)
             print(net.shape)
-            net = tcl.conv2d(net, num_outputs=32, kernel_size=3,# 
-                        stride=1, activation_fn=tf.nn.relu, padding='SAME', normalizer_fn=tcl.batch_norm, scope='conv3')
-            net = tcl.max_pool2d(net, kernel_size=2, stride=2)
+            net = tcl.conv2d(net, num_outputs=64, kernel_size=5,# 
+                        stride=2, activation_fn=tf.nn.relu, padding='SAME', normalizer_fn=tcl.batch_norm, scope='conv3')
+            # net = tcl.max_pool2d(net, kernel_size=2, stride=2)
             print(net.shape)
-            net = tcl.conv2d(net, num_outputs=64, kernel_size=3,# 
-                        stride=2, activation_fn=tf.nn.relu, padding='SAME', normalizer_fn=tcl.batch_norm, scope='conv4')
-
-            print(net.shape)
+            # net = tcl.conv2d(net, num_outputs=64, kernel_size=3,# 
+            #             stride=2, activation_fn=tf.nn.relu, padding='SAME', normalizer_fn=tcl.batch_norm, scope='conv4')
+            # print(net.shape)
             
             net = tcl.flatten(net) #feature
+            net = tcl.fully_connected(net, 256, activation_fn=tf.nn.relu, normalizer_fn=tcl.batch_norm, scope='fc1', weights_initializer=tf.random_normal_initializer(0, 0.02))
             print(net.shape)
-            feature = tcl.fully_connected(net, feature_size, normalizer_fn=tcl.batch_norm, scope='feature', weights_initializer=tf.random_normal_initializer(0, 0.02))
+            feature = tcl.fully_connected(net, feature_size, activation_fn=None, normalizer_fn=tcl.batch_norm, scope='feature', weights_initializer=tf.random_normal_initializer(0, 0.02))
 
-            decoder = tcl.fully_connected(feature, 256, normalizer_fn=tcl.batch_norm, scope='fc', weights_initializer=tf.random_normal_initializer(0, 0.02))
-            print(decoder.shape)
-            decoder = tf.reshape(decoder, (-1, 2, 2, 64))
 
-            #decoder = tcl.conv2d_transpose(decoder, 16, 3, stride=2, # size*4
-            #                        activation_fn=tf.nn.relu, normalizer_fn=tcl.batch_norm, padding='SAME', weights_initializer=tf.random_normal_initializer(0, 0.02))
-            print(decoder.shape)
-            decoder = tcl.conv2d_transpose(decoder, 64, 3, stride=2, # size*8
-                                    activation_fn=tf.nn.relu, normalizer_fn=tcl.batch_norm, padding='SAME')
-            decoder = unpool(decoder)
-            decoder = tcl.conv2d_transpose(decoder, 32, 3, stride=1, # size*8
-                                    activation_fn=tf.nn.relu, normalizer_fn=tcl.batch_norm, padding='SAME')
-            decoder = unpool(decoder)
-            print(decoder.shape)
-            decoder = tcl.conv2d_transpose(decoder, 16, 3, stride=1, # size*8
-                                    activation_fn=tf.nn.relu, normalizer_fn=tcl.batch_norm, padding='SAME')
-            decoder = unpool(decoder)            
-            print(decoder.shape)
-            x_out = tcl.conv2d_transpose(decoder, 3, 3, stride=1, # size*16
-                                    activation_fn=tf.nn.tanh, padding='SAME', weights_initializer=tf.random_normal_initializer(0, 0.02))
-            print(x_out.shape)
-
-            # mse = tf.reduce_mean(tf.reduce_sum((inputs - x_out)**2, 1))
-            mse = tf.reduce_mean(tf.pow(255.*(inputs - x_out),2))
-            # mse = tf.reduce_mean(tf.abs((inputs - x_out)))
-            
             fc = tcl.fully_connected(feature, self.class_num, activation_fn=tf.nn.sigmoid, normalizer_fn=tcl.batch_norm, scope='fc_out')
 
-            return feature, mse, x_out, fc
+            # return feature, mse, x_out, fc
+            return feature, fc
     @property
     def vars(self):
         return [var for var in tf.global_variables() if self.name in var.name]
@@ -268,7 +304,7 @@ class one_shot_mnist(object):
                                     activation_fn=lrelu, normalizer_fn=tcl.batch_norm, padding='SAME', weights_initializer=tf.random_normal_initializer(0, 0.02))
             print(decoder.shape)
             x_out = tcl.conv2d_transpose(decoder, 1, 3, stride=2, # size*16
-                                    activation_fn=tf.nn.sigmoid, padding='SAME', weights_initializer=tf.random_normal_initializer(0, 0.02))
+                                    activation_fn=lrelu, padding='SAME', weights_initializer=tf.random_normal_initializer(0, 0.02))
             print(x_out.shape)
             mse = tf.reduce_mean(tf.pow(255.*(inputs - x_out),2))
             # #mse = tf.reduce_mean(tf.reduce_sum((inputs - x_out)**2, 1))
